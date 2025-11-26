@@ -1,0 +1,6 @@
+instructor
+python-dotenv
+openai
+vllm
+logfire
+tenacity
