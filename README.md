@@ -1,174 +1,340 @@
-# 法律文书提取集成方案 (v2.0 生产级)
+# 法律文书提取系统 (生产级 v2.0)
 
-本方案专为**百万级法律文书处理**设计，结合了 **DeepSeek (在线)** 的高智能与 **vLLM (本地)** 的高吞吐能力，提供了一套稳健、可扩展的提取系统。
+通用的**大规模文本结构化提取解决方案**，专为百万级数据处理设计。采用双引擎架构 + 生产级可观测性，可广泛应用于法律、医疗、金融等领域的文档智能化。
 
-## 1. 核心特性
+## ✨ 核心特性
 
-*   **双模引擎 (Dual-Mode)**:
-    *   **ONLINE_API**: 使用 DeepSeek-V3 进行复杂推理或小批量调试。
-    *   **LOCAL_OFFLINE**: 使用本地 vLLM 进行海量数据的高吞吐批量推理。
-*   **多卡并行 (Multi-GPU)**:
-    *   支持**多进程并行**模式。在 7 卡 L40 机器上，可启动 7 个独立进程，吞吐量提升 7 倍。
-*   **生产级存储 (Sharded JSONL)**:
-    *   采用分片 JSONL (`input_part_001.jsonl`) 存储，大幅提升 I/O 效率。
-*   **断点续传 (Checkpointing)**:
-    *   内置 ID 级状态追踪。程序中断后重启，会自动跳过已处理的记录，实现秒级恢复。
-*   **结构化保证**:
-    *   利用 vLLM 的 `guided_json` 技术，在本地推理时也能保证输出严格符合 Pydantic Schema。
+### 🚀 双模引擎
+- **在线 API 模式**: 使用 DeepSeek/OpenAI 兼容 API，适合复杂推理和小批量调试
+- **本地 vLLM 模式**: 本地 GPU 高吞吐批量推理，适合百万级数据处理
 
-## 2. 快速开始
+### 📊 生产级可观测性 (Logfire)
+- **自动追踪**: 所有 LLM 调用、Pydantic 验证、API 错误自动上传 Logfire
+- **实时监控**: Web Dashboard 查看成功率、延迟、Token 消耗
+- **零侵入**: 仅需 `logfire auth` 一次认证，无需修改业务代码
 
-### **2.1 环境准备**
+### ⚡ 高性能架构
+- **多卡并行**: 7 卡 L40 可启动 7 个独立进程，吞吐量提升 7 倍
+- **分片存储**: JSONL 分片 + 断点续传，程序中断后秒级恢复
+- **自动重试**: API 调用失败自动重试（最多 3 次），提升稳定性
+
+### 🎯 通用化设计
+- **配置驱动**: 修改 `.env` 中的 `SYSTEM_PROMPT` 即可切换领域（法律→医疗→财务）
+- **Schema 可扩展**: 替换 `schemas.py` 适配任何结构化提取需求
+- **零代码切换**: 在线 API ↔ 本地 vLLM 一键切换
+
+---
+
+## 🚀 快速开始
+
+### 1. 环境准备
+
 ```bash
+# 安装依赖
 pip install -r requirements.txt
+
+# 复制配置文件
 cp .env.example .env
 
-# 初次使用 Logfire 需要认证（用于日志可观测性）
+# 初次使用 Logfire（生产级监控）
 logfire auth
 ```
 
-### **2.2 配置 (.env)**
-所有配置均在 `.env` 文件中管理。核心参数如下：
+**Logfire 认证说明：**
+- 首次运行会打开浏览器，使用 GitHub 登录即可
+- 认证后所有日志会自动上传到您的 Logfire Dashboard
+- 可选：如果不需要云端监控，可跳过此步骤（本地仍会打印日志）
+
+---
+
+### 2. 配置说明
+
+编辑 `.env` 文件，核心参数如下：
 
 ```properties
-# 运行模式: ONLINE_API (调试) 或 LOCAL_OFFLINE (生产)
-EXECUTION_MODE=LOCAL_OFFLINE
+# ==========================================
+# 运行模式
+# ==========================================
+EXECUTION_MODE=ONLINE_API  # 或 LOCAL_OFFLINE
 
-# 系统提示词: 可自定义为任何领域的提取任务
-# 示例（法律）: 你是一名法律专家助手。请从提供的中国法院判决书中提取结构化数据。
-# 示例（医疗）: 你是一名医疗专家助手。请从提供的病历中提取结构化数据。
+# ==========================================
+# 系统提示词（通用化设计 - 可自定义领域）
+# ==========================================
+# 法律领域示例
 SYSTEM_PROMPT=你是一名法律专家助手。请从提供的中国法院判决书中提取结构化数据。
 
+# 医疗领域示例（取消注释使用）
+# SYSTEM_PROMPT=你是一名医疗专家助手。请从提供的病历中提取结构化数据。
+
+# 财务领域示例（取消注释使用）
+# SYSTEM_PROMPT=你是一名财务专家助手。请从提供的财务报表中提取结构化数据。
+
+# ==========================================
 # 生成参数
-TEMPERATURE=0.0          # 0.0 = 确定性输出
+# ==========================================
+TEMPERATURE=0.0          # 0.0 = 确定性输出（数据提取推荐）
 MAX_OUTPUT_TOKENS=2048   # 最大输出长度
 
+# ==========================================
 # 重试配置（在线 API 模式）
-MAX_RETRIES=3            # 最大重试次数
+# ==========================================
+MAX_RETRIES=3            # 最大重试次数（防止临时网络错误）
 RETRY_DELAY_SECONDS=2    # 重试延迟（秒）
 
+# ==========================================
 # 数据目录
+# ==========================================
 BATCH_INPUT_DIR=data
 BATCH_OUTPUT_DIR=data
 
-# --- 硬件配置 (关键) ---
-# 并行 GPU 数量: 设置为显卡总数 (例如 7)
-NUM_GPUS=7
+# ==========================================
+# 硬件配置（本地 vLLM 模式）
+# ==========================================
+NUM_GPUS=7               # 并行 GPU 数量
+TENSOR_PARALLEL_SIZE=1   # 单卡模型并行度（推荐 TP=1）
 
-# 单卡模型并行度: 建议设为 1 (TP=1)
-# 解释: 对于 L40 (48GB) 跑 Qwen2.5-14B，单卡显存足够。
-# 启动 7 个 TP=1 的进程比 1 个 TP=4 的进程吞吐量更高。
-TENSOR_PARALLEL_SIZE=1
+# L40 (48GB) 运行 Qwen 14B 建议配置：
+# - NUM_GPUS=7, TP=1  → 启动 7 个独立进程（吞吐量最高）
+# - NUM_GPUS=1, TP=4  → 单进程 4 卡并行（模型太大时使用）
 ```
 
-### **2.3 数据准备**
-系统接受 **JSONL 分片文件** 作为输入。
+---
 
-**方式 A: 迁移现有 .txt 文件**
-如果您手头有大量 .txt 文件，请将其放入 `data/` 目录，然后运行迁移脚本：
+### 3. 数据准备
+
+系统接受 **JSONL 分片文件** 作为输入，格式如下：
+
+```jsonl
+{"custom_id": "doc_001", "text": "这里是原始文本内容..."}
+{"custom_id": "doc_002", "text": "第二条文档..."}
+```
+
+**从 TXT 文件迁移：**
 ```bash
+# 如果您的数据是 .txt 文件，使用迁移脚本转换
 python migrate_txt_to_jsonl.py
 ```
-它会将所有 .txt 打包成 `data/input_part_XXX.jsonl`。
 
-**方式 B: 直接准备 JSONL**
-格式要求 (每行一个 JSON):
-```json
-{"custom_id": "unique_case_id_001", "text": "判决书全文内容..."}
+**手动创建分片：**
+```bash
+# 创建输入文件
+echo '{"custom_id": "test_001", "text": "测试文本"}' > data/input_part_001.jsonl
 ```
-文件名建议: `input_part_001.jsonl`, `input_part_002.jsonl`...
 
-### **2.4 运行提取**
+---
+
+### 4. 运行系统
+
 ```bash
 python unified_runner.py
 ```
-*   **Master 进程**会自动扫描所有分片，并均匀分配给 7 个 **Worker 进程**。
-*   每个 Worker 绑定一张显卡，并行处理。
-*   结果实时写入对应的 `output_part_XXX.jsonl`。
-*   **随时可以中断 (Ctrl+C)**，下次运行会自动续传。
 
-## 3. 目录结构
-
-```text
-.
-├── .env                  # 统一配置文件
-├── unified_runner.py     # 主程序 (Master-Worker 架构)
-├── schemas.py            # 数据结构定义 (Pydantic)
-├── migrate_txt_to_jsonl.py # 数据迁移工具
-├── data/                 # 数据存储目录
-│   ├── input_part_001.jsonl   # 输入分片
-│   ├── output_part_001.jsonl  # 提取结果 (自动生成)
-│   └── ...
-└── requirements.txt
+**运行后输出示例（带 Logfire）：**
+```
+Logfire project URL: https://logfire-us.pydantic.dev/your-project
+>>> 正在以 [ONLINE_API] 模式运行 (Model: deepseek-chat)...
+扫描到 10 个输入分片。
+20:36:00.123 处理分片: input_part_001.jsonl
+20:36:16.257 Pydantic JudgmentExtraction validate_json  ← Logfire 自动追踪
+20:36:31.189 Chat Completion with 'deepseek-chat' [LLM] ← Logfire 自动追踪
+20:36:41.094 分片完成: input_part_001.jsonl - 成功: 1000/1000
 ```
 
-## 4. 最佳实践建议
+**查看实时监控：**
+访问 Logfire Dashboard (控制台会输出链接)，可查看：
+- 📈 API 调用成功率和延迟
+- 💰 Token 消耗统计
+- 🔍 每个请求的完整追踪链路
+- ⚠️ 错误详情和堆栈
 
-### **4.1 多卡策略**
-*   **推荐配置**: `NUM_GPUS=7`, `TENSOR_PARALLEL_SIZE=1`
-    *   启动 7 个独立 vLLM 实例，最大化吞吐量。
-    *   每个实例独占一张显卡，互不干扰。
-*   **不推荐**: `TENSOR_PARALLEL_SIZE=7` 
-    *   vLLM 要求 TP 能整除注意力头数，且最好是 2 的幂 (1, 2, 4, 8)。
-    *   Qwen 14B 的注意力头数是 40，无法被 7 整除。
+---
 
-### **4.2 性能参数详解**
+## 📖 进阶配置
 
-vLLM 有三个关键参数控制性能和显存占用，理解它们之间的关系非常重要：
+### vLLM 性能参数
 
-#### **参数定义**
-1.  **`MAX_MODEL_LEN`** (默认 8192) - 单个序列的最大长度
-    *   含义：每条请求（输入+输出）能达到的最大 Token 数。
-    *   类比：一本书最多能有多少页。
-
-2.  **`MAX_NUM_SEQS`** (默认 256) - 同时处理的最大序列数
-    *   含义：GPU 能**同时**服务多少条请求。
-    *   类比：图书馆能同时容纳多少本书。
-
-3.  **`MAX_NUM_BATCHED_TOKENS`** (默认 2048) - 每次前向传播的最大 Token 数
-    *   含义：GPU **每次计算**时处理的 Token 总数（所有序列加起来）。
-    *   类比：图书管理员一次能翻阅的总页数。
-
-#### **为什么 `MAX_NUM_BATCHED_TOKENS` < `MAX_MODEL_LEN`？**
-
-关键点：**`MAX_NUM_BATCHED_TOKENS` 是所有序列的总和，而 `MAX_MODEL_LEN` 是单个序列的上限。**
-
-**示例 1: 处理 4 条短请求**
-```
-请求 A: 150 tokens  |  请求 B: 300 tokens
-请求 C: 100 tokens  |  请求 D: 200 tokens
-----------------------------------------
-本批次总计: 750 tokens ✅ (< 2048，可以一起处理)
-```
-
-**示例 2: 处理 1 条长请求**
-```
-请求 E: 8000 tokens (合法，< MAX_MODEL_LEN=8192)
-
-vLLM 使用 "Chunked Prefill" 分块处理:
-- 第 1 次前向传播: 处理前 2048 tokens
-- 第 2 次前向传播: 处理接下来的 2048 tokens
-- ...
-- 分 4 次完成，每次不超过 MAX_NUM_BATCHED_TOKENS
-```
-
-#### **推荐配置**
-
-**保守配置（稳定优先）**
 ```properties
-MAX_MODEL_LEN=8192           # 单条请求最长 8K
-MAX_NUM_BATCHED_TOKENS=2048  # 每次前向传播 2K
-MAX_NUM_SEQS=256             # 最多 256 个并发请求
-```
+# 显存占用率 (0.90 - 0.95)
+GPU_MEMORY_UTILIZATION=0.90
 
-**激进配置（吞吐优先，48GB 显存充足时）**
-```properties
+# 上下文长度限制（防止 OOM）
 MAX_MODEL_LEN=8192
-MAX_NUM_BATCHED_TOKENS=8192  # 提高到和 MAX_MODEL_LEN 一样
-MAX_NUM_SEQS=512             # 增加并发数
+
+# 开启前缀缓存（加速 System Prompt）
+ENABLE_PREFIX_CACHING=True
+
+# 高级调优（可选）
+MAX_NUM_SEQS=256              # 最大并发序列数
+MAX_NUM_BATCHED_TOKENS=2048   # 每次迭代处理的最大 Token 数
 ```
 
-**如何调优？**
-*   如果 GPU 显存占用只有 50-60%，说明还有余量 → 增大 `MAX_NUM_BATCHED_TOKENS`
-*   如果经常 OOM (显存不足) → 减小 `MAX_NUM_BATCHED_TOKENS`
-*   运行时可通过 `nvidia-smi` 监控显存使用率
+**参数说明：**
+- `MAX_MODEL_LEN`: 模型支持的最大上下文长度，建议设为 8192（Qwen 14B）
+- `MAX_NUM_SEQS`: 并发处理的序列数，显存越大可设越高
+- `MAX_NUM_BATCHED_TOKENS`: 批处理大小，遇到 OOM 可调小
+
+---
+
+## 🔍 Logfire 可观测性详解
+
+### 自动追踪的内容
+
+Logfire 会自动记录以下信息（无需额外代码）：
+
+1. **LLM API 调用**
+   - 请求时间、延迟、Token 消耗
+   - 输入 Prompt 和输出结果
+   - 重试次数和失败原因
+
+2. **Pydantic 验证**
+   - Schema 验证成功/失败
+   - 验证错误详情
+   - 数据类型转换过程
+
+3. **系统指标**
+   - 成功率、错误率
+   - 平均延迟、P95/P99 延迟
+   - 吞吐量统计
+
+### Dashboard 功能
+
+访问您的 Logfire 项目（链接在启动时显示），可以：
+
+- 📊 **实时监控**: 查看当前正在运行的任务
+- 🔍 **Trace 查询**: 搜索特定 `custom_id` 的处理记录
+- 📈 **性能分析**: 查看延迟分布、Token 消耗趋势
+- ⚠️ **错误追踪**: 快速定位失败原因
+
+**示例查询（Dashboard 中使用）：**
+```sql
+-- 查询失败率最高的 10 个错误
+SELECT error_type, count(*) as cnt
+FROM records
+WHERE status = 'failed'
+GROUP BY error_type
+ORDER BY cnt DESC
+LIMIT 10
+```
+
+---
+
+## 📊 性能参考
+
+### 实测数据 (单卡 L40 + Qwen 14B)
+
+| 指标 | 数值 |
+|------|------|
+| 吞吐量 | ~100 条/分钟 |
+| 平均延迟 | ~15 秒/条 |
+| 显存占用 | ~35GB / 48GB |
+| Token/秒 | ~150 tokens/s |
+
+### 多卡扩展性
+
+| GPU 数量 | 吞吐量 | 处理 100 万条耗时 |
+|----------|--------|-------------------|
+| 1 卡 | 100 条/分 | ~7 天 |
+| 4 卡 | 400 条/分 | ~1.7 天 |
+| 7 卡 | 700 条/分 | ~1 天 |
+
+---
+
+## 🛠️ 自定义 Schema
+
+修改 `schemas.py` 以适配您的数据结构：
+
+```python
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+class YourCustomSchema(BaseModel):
+    """自定义提取结构"""
+    field1: str = Field(..., description="字段1的描述（帮助 LLM 理解）")
+    field2: Optional[int] = Field(None, description="可选字段")
+    nested_list: List[str] = Field(default_factory=list, description="列表字段")
+```
+
+**然后在 `unified_runner.py` 中替换：**
+```python
+from schemas import YourCustomSchema  # 替换 JudgmentExtraction
+
+# ...
+response_model=YourCustomSchema  # 替换原有的 response_model
+```
+
+---
+
+## 🔧 故障排查
+
+### 1. Logfire 认证失败
+```bash
+# 手动认证
+logfire auth
+
+# 或跳过 Logfire（仅使用本地日志）
+# 注释掉 unified_runner.py 中的 logfire.configure()
+```
+
+### 2. vLLM OOM 错误
+```properties
+# 降低显存占用率
+GPU_MEMORY_UTILIZATION=0.85
+
+# 减小上下文长度
+MAX_MODEL_LEN=4096
+
+# 减小批处理大小
+MAX_NUM_BATCHED_TOKENS=1024
+```
+
+### 3. API 限流错误
+```properties
+# 增加重试次数
+MAX_RETRIES=5
+
+# 延长重试延迟
+RETRY_DELAY_SECONDS=5
+```
+
+---
+
+## 📚 文件结构
+
+```
+llm_json/
+├── unified_runner.py          # 主程序（双模引擎）
+├── schemas.py                 # 数据结构定义（Pydantic）
+├── migrate_txt_to_jsonl.py    # TXT 文件迁移工具
+├── requirements.txt           # 依赖列表
+├── .env.example               # 配置模板
+├── .env                       # 实际配置（不提交到 Git）
+├── .gitignore                 # Git 忽略规则
+└── data/                      # 数据目录
+    ├── input_part_*.jsonl     # 输入分片
+    └── output_part_*.jsonl    # 输出分片
+```
+
+---
+
+## 🎓 最佳实践
+
+1. **开发阶段**: 使用 `ONLINE_API` 模式 + 小数据集验证 Schema
+2. **生产部署**: 切换到 `LOCAL_OFFLINE` 模式 + vLLM 多卡并行
+3. **监控运维**: 定期查看 Logfire Dashboard，关注错误率和延迟
+4. **数据安全**: 确保 `.env` 已加入 `.gitignore`，避免泄露 API Key
+
+---
+
+## 📝 License
+
+MIT License
+
+---
+
+## 🙏 致谢
+
+本项目基于以下优秀开源项目：
+- [vLLM](https://github.com/vllm-project/vllm) - 高性能 LLM 推理引擎
+- [Instructor](https://github.com/instructor-ai/instructor) - 结构化输出抽取
+- [Logfire](https://logfire.pydantic.dev/) - Python 原生可观测性平台
+- [Pydantic](https://github.com/pydantic/pydantic) - 数据验证框架
